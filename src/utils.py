@@ -28,7 +28,7 @@ def save_file(data: dict, file_nmae: str) -> None:
     """Save data to file.
     """
     root = get_parent_path(lvl=1)
-    path = os.path.join(root, 'data', 'excitation_signal')
+    path = os.path.join(root, 'data', 'excitation_signals')
     mkdir(path)
     path_file = os.path.join(path, file_nmae)
     with open(path_file, 'wb') as file:
