@@ -17,12 +17,12 @@ class Visualization():
                  f_stamp: np.ndarray) -> None:
         """Initialize a instance.
 
-        Args:
-            U_amp (m x N): The amplitude in the frequency domain.
-            U_phase (m x N): The random phase in the frequency domain.
-            u (m x N): The signals in the time domain.
-            t_stamp (array): The time stamp.
-            f_stamp (array): The frequency stamp.
+        Attributes:
+            U_amp (nr_inputs x m x N): The amplitude in the frequency domain.
+            U_phase (nr_inputs x m x N): The random phase in the frequency domain.
+            u (nr_inputs x m x N): The signals in the time domain.
+            t_stamp (array): The time stamp for each signal.
+            f_stamp (array): The frequency stamp for each signal.
         """
         self.freq_range = freq_range
         self.U_amp = U_amp
@@ -30,8 +30,9 @@ class Visualization():
         self.u = u
         self.t_stamp = t_stamp
         self.f_stamp = f_stamp
-        self.m, self.N = self.U_amp.shape
-        self.idx = self.get_freq_index(freq_range, self.f_stamp)
+        self.nr_inputs, self.m, self.N = self.U_amp.shape
+        self.idx = self.get_freq_index(self.freq_range, 
+                                       self.f_stamp)
     
     @staticmethod
     def get_freq_index(freq_range: tuple,
@@ -59,19 +60,24 @@ class Visualization():
         """
         ax.plot(stamp, signal, linewidth=1.0, linestyle='-')
 
-    def plot_multi_axes(self, axes: Axes, idx: int) -> None:
-        """Plot multi axes.
+    def plot_multi_axes(self, axes: Axes, 
+                        idx: int) -> None:
+        """Plot one column of the axes.
+
+        Args:
+            axes: one column of axes
+            idx: the idx of the column / the idx of the input channel
         """
         # plot the amplitude
         ax = axes[0]
         self.set_axes_format(ax, r'Radian frequency in $\omega$/$s$', r'Amplitude')
-        self.plot_ax(ax, self.U_amp[idx, :], self.f_stamp*2*np.pi)
+        self.plot_ax(ax, self.U_amp[idx, self.idx_m, :], self.f_stamp*2*np.pi)
         ax.set_xlim(self.freq_range[0]*2*np.pi, 
                     self.freq_range[1]*2*np.pi)
         # plot the random phase
         ax = axes[1]
         self.set_axes_format(ax, r'Radian frequency in $\omega$/$s$', r'Phase')
-        self.plot_ax(ax, self.U_phase[idx, :], self.f_stamp*2*np.pi)
+        self.plot_ax(ax, self.U_phase[idx, self.idx_m, :], self.f_stamp*2*np.pi)
         ax.set_xlim(self.freq_range[0]*2*np.pi, 
                     self.freq_range[1]*2*np.pi)
         # plot the time signal
@@ -79,24 +85,27 @@ class Visualization():
         ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1.0)
         ax.axhline(y=-1.0, color='black', linestyle='-', linewidth=1.0)
         self.set_axes_format(ax, r'Time in $s$', r'Time signal')
-        self.plot_ax(ax, self.u[idx, :], self.t_stamp)
+        self.plot_ax(ax, self.u[idx, self.idx_m, :], self.t_stamp)
+        ax.axhline(y=self.u[idx, self.idx_m, 0], color='red', linestyle='-', linewidth=0.5)
+        ax.axhline(y=self.u[idx, self.idx_m, -1], color='red', linestyle='-', linewidth=0.5)
         
-    def plot_signals(self, nr: int) -> None:
-        """Plot the signals, 3 x min{nr, m}. The first row
+    def plot_signals(self, idx_m: int=0) -> None:
+        """Plot one signal for all inputs. The first row
         involves the amplitude in the frequency domain. The
         second row involves the phase in the frequency domian.
         The third row involves the time singals.
 
         Args:
-            nr (int): The number of signals to plot.
+            idx_m: which signal to plot.
         """
-        nr_signals = np.min((nr, self.m))
+        self.idx_m = idx_m
 
-        fig, axes = plt.subplots(3, nr_signals, figsize=(10*nr_signals, 16))
-        if nr_signals == 1:
+        fig, axes = plt.subplots(3, self.nr_inputs, figsize=(3*self.nr_inputs, 8))
+        
+        if self.nr_inputs == 1:
             self.plot_multi_axes(axes, 0)
         else:
-            for i in range(nr_signals):
+            for i in range(self.nr_inputs):
                 self.plot_multi_axes(axes[:, i], i)
         
         plt.tight_layout()

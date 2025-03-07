@@ -12,7 +12,9 @@ class ExcitationSignal():
     signal repeats p times.
     """
     def __init__(self, freq_range: tuple=(0.0, 5.0),
-                 f: float=100.0, N: int=100, amp: int=100.0,
+                 f: float=100.0, 
+                 N: int=100, 
+                 amp: int=100.0,
                  eps=1e-1) -> None:
         """Initializa a instance.
 
@@ -26,12 +28,17 @@ class ExcitationSignal():
         self.freq_range = freq_range
         self.f = f
         self.N = N
-        self.initialization(self.freq_range, self.f, self.N)
+        
         self.amp = amp
         self.eps = eps
 
+        self.initialization(self.freq_range, 
+                            self.f, 
+                            self.N)
+        
     def initialization(self, freq_range: tuple,
-                       f: float, N: int) -> None:
+                       f: float, 
+                       N: int) -> None:
         """Initialize the necessary parameters.
 
         Args:
@@ -39,7 +46,7 @@ class ExcitationSignal():
             f (float): The sampling frequency.
             N (int): The number of points of each signal.
         
-        Returns:
+        Attributes:
             df (float): The sampling interval in the frequency domain.
             T (float): The execution time for each signal.
             t_stamp (array): The time stamp.
@@ -139,9 +146,22 @@ class ExcitationSignal():
         """
         return U_amp * np.exp(1j * U_phase)
 
-    def _get_frequency_signal(self, N: int, amp: float, 
-                              idx: tuple) -> complex:
-        """Get one frequency signal.
+    def get_frequency_signal(self, N: int, 
+                             amp: float, 
+                             idx: tuple) -> tuple[complex,
+                                                  np.ndarray,
+                                                  np.ndarray]:
+        """Get one frequency signal with random phase.
+
+        Args:
+            N: the number of points
+            amp: the amplitude in the frequency domain
+            idx: the start and end indices of the excited range. 
+        
+        Returns:
+            U (complex): The frequency signal.
+            U_amp (array): The amplitude in the frequency domain.
+            U_phase (array): The phase in the frequency domain.
         """
         U_amp = self._get_frequency_amplitude(N, amp, idx)
         U_phase = self._get_random_phase(N)
@@ -149,7 +169,7 @@ class ExcitationSignal():
         return U, U_amp, U_phase
 
     @staticmethod
-    def _get_time_signal(U: complex):
+    def get_time_signal(U: complex):
         """Convert frequency signal to time signal
         using inverse fast Fourier transformation.
 
@@ -167,81 +187,127 @@ class ExcitationSignal():
         """
         return u/np.max(np.abs(u))
 
-    def _get_excitation_signal(self, N: int,
-                               amp: float,
-                               idx: tuple) -> tuple[np.ndarray, 
-                                                    np.ndarray,
-                                                    np.ndarray]:
-        """Generate one excitation signal with random
-        phase in the frequency domain.
-
-        Args:
-            N (int): The number of points of a signal.
-            amp (float): The amplitude in the frequency domain.
-            idx (tuple): The start and end indices of the excited range. 
-
-        Returns:
-            U (complex): The frequency signal.
-            U_amp (array): The amplitude in the frequency domain.
-            U_phase (array): The phase in the frequency domain.
-            u (array): The time signal. 
-        """
-        U, U_amp, U_phase = self._get_frequency_signal(N, amp, idx)
-        u = self._get_time_signal(U)
-        norm_u = self._get_normalization(u)
-        return U_amp, U_phase, norm_u
-
-    def get_signal(self, p: int, 
-                   N: int, 
-                   amp: int, 
-                   idx: tuple) -> tuple[np.ndarray,
-                                        np.ndarray,
+    def get_signals(self, N: int, 
+                    amp: int, 
+                    nr_inputs: int,
+                    idx: tuple,
+                    mode: str) -> tuple[np.ndarray,
                                         np.ndarray,
                                         np.ndarray]:
-        """Get one signal repeating p times. Ensuring that the 
-        difference between the beginning and the end of the same 
-        signal is not too large.
+        """For each input channel, generate one signal
+        according to the mode (orthogonal or random). Ensuring 
+        that the difference between the beginning and the end 
+        of the same signal is not too large (< eps).
         
         Args:
-            p (int): The number of repeat times.
+            N: the number of points.
+            amp: the amplitude
+            nr_inputs: the number of inputs
+            idx: the start and end indices
+            mode: the way to generate signals for different inputs
 
         Returns:
-            U_amp (array): The amplitude in the frequency domain.
-            U_phase (array): The random phase in the frequency domain.
-            u (array): The single time signal.
-            us (array): The repeated time signal.
+            U_amp (nr_inputs x N): The amplitude in the frequency domain.
+            U_phase (nr_inputs x N): The random phase in the frequency domain.
+            u (nr_inputs x N): The time signal.
+        """
+        U_amp = np.zeros((nr_inputs, N))
+        U_phase = np.zeros((nr_inputs, N))
+        u = np.zeros((nr_inputs, N))
+
+        if mode == 'orthogonal':
+            _U_amp, _U_phase = self.get_one_feasible_signal(N, amp, idx)
+            for i in range(nr_inputs):
+                phase_shift = 2 * np.pi * i / nr_inputs
+                U_amp[i, :] = _U_amp
+                U_phase[i, :] = _U_phase + phase_shift
+                U = self._get_complex_signal(U_amp[i, :], U_phase[i, :])
+                u[i, :] = self._get_normalization(self.get_time_signal(U))
+        
+        elif mode == 'random':
+            for i in range(nr_inputs):
+                U_amp[i, :], U_phase[i, :] = self.get_one_feasible_signal(N, amp, idx)
+                U = self._get_complex_signal(U_amp[i, :], U_phase[i, :])
+                u[i, :] = self._get_normalization(self.get_time_signal(U))
+
+        return U_amp, U_phase, u
+    
+    def get_one_feasible_signal(self,
+                                N: int,
+                                amp: float,
+                                idx: tuple) -> tuple[np.ndarray,
+                                                     np.ndarray]:
+        """Generate one feasible signal, return the amplitude
+        and phase. Here feasible means that it's a cyclic signal.
+
+        Args:
+            N: the number of points
+            amp: the amplitude in the frequency domain
+            idx: the start and end indices
+        
+        Returns:
+            U_amp: The amplitude in the frequency domain.
+            U_phase: The random phase in the frequency domain.
         """
         diff = 1000.0
         while diff > self.eps:
-            U_amp, U_phase, u = self._get_excitation_signal(N, amp, idx)
+            U, U_amp, U_phase = self.get_frequency_signal(N, amp, idx)
+            u = self._get_normalization(self.get_time_signal(U))
             diff = np.abs(u[0] - u[1])
-        return U_amp, U_phase, u, np.tile(u, p)
-    
+        return U_amp, U_phase
+
     def get_multi_signals(self, m: int, 
-                          p: int) -> tuple[np.ndarray,
-                                           np.ndarray,
-                                           np.ndarray,
-                                           np.ndarray]:
-        """Generate m different signals, and each signal repeats
-        p times.
+                          p: int,
+                          nr_inputs: int,
+                          mode: str) -> tuple[np.ndarray,
+                                              np.ndarray,
+                                              np.ndarray,
+                                              np.ndarray]:
+        """For each input channel, generate m different signals, 
+        and each signal repeats p times. Each signal is mutually
+        orthogonal or totally random.
 
         Args:
             m (int): The number of different signals.
             p (int): Each signal repeats p times.
+            nr_inputs (int): The number of inputs of the system.
+            mode (str): The way to generate signals for different inputs, orthogonal or random
         
         Returns:
-            U_amp (m x N): The amplitude in the frequency domain of different signals.
-            U_Phase (m x N): The random phase in the frequency domain of differnt signals.
-            u (m x N): The different signals in the time domain.
-            us (m x N*p): The m different signals repeated p times.
+            U_amp (nr_inputs x m x N): The amplitude in the frequency domain of different signals.
+            U_Phase (nr_inputs x m x N): The random phase in the frequency domain of differnt signals.
+            u (nr_inputs x m x N): The different signals in the time domain.
+            us (nr_inputs x m*N*p): The m different signals repeated p times.
         """
-        U_amp = np.zeros((m, self.N))
-        U_phase = np.zeros((m, self.N))
-        u = np.zeros((m, self.N))
-        us = np.zeros((m, p*self.N))
+        U_amp = np.zeros((nr_inputs, m, self.N))
+        U_phase = np.zeros((nr_inputs, m, self.N))
+        u = np.zeros((nr_inputs, m, self.N))
+        us = np.zeros((nr_inputs, m*p*self.N))
 
         for i in tqdm(range(m)):
-            U_amp[i, :], U_phase[i, :], u[i, :], us[i, :] = self.get_signal(p, self.N, self.amp, self.idx)
+            U_amp[:, i, :], U_phase[:, i, :], u[:, i, :] = self.get_signals(self.N, 
+                                                                            self.amp, 
+                                                                            nr_inputs,
+                                                                            self.idx,
+                                                                            mode)
         
+        us = self.get_repeat_signals(u, p)
         return U_amp, U_phase, u, us
     
+    @staticmethod
+    def get_repeat_signals(u: np.ndarray,
+                           p: int) -> np.ndarray:
+        """Repeat the signal p times.
+
+        Args:
+            u (nr_inputs x m x N): the time signal
+            p: the number of repeat times
+        
+        Returns:
+            us (nr_inputs x m*p*N): repeated time signal
+        """
+        nr_inputs, m, N = u.shape
+        us = np.tile(u, (1, 1, p))  # (nr_inputs, m*p, N)
+        return us.reshape(nr_inputs, -1)
+
+
