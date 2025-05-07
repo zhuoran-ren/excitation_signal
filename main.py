@@ -38,7 +38,7 @@ def main(freq_range: tuple,
                Inputs=(nr_inputs,))
     
     generator = ExcitationSignal(freq_range=freq_range, f=f, N=N)
-    U_amp, U_phase, u, us = generator.get_multi_signals(m=m, 
+    U_amp, U_phase, u, us, u_sysid = generator.get_multi_signals(m=m, 
                                                         p=p, 
                                                         nr_inputs=nr_inputs,
                                                         mode=mode)
@@ -47,20 +47,21 @@ def main(freq_range: tuple,
     data = {
         'freq_range': freq_range,      # the excited frequency range
         'nr_inputs': nr_inputs,        # the number of inputs
-        'mode': mode,                  # the way to generate signals for multiple inputs
+        'mode': mode,                  # the way to generate signals for multiple inputs, there are two choices, orthogonal and mapping
         'f': f,                        # the sampling frequency
         'N': N,                        # the number of sampling points
         'p': p,                        # the repeat times of each signal
         'm': m,                        # the number of different signals
         'amplitude': U_amp,            # the amplitude in the frequency domain for each signal
         'phase': U_phase,              # the phase in the frequency domain for each signal
-        'u': u,                        # the m different time signals for each input channel
+        'u_sysid': u_sysid,         # the original signal that is truly used for the system identification
+        'u_exec': u,                   # the m different time signals for each input channel
         'us': us,                      # the m*p signals for each input channel
         'idx': generator.idx,          # the start and end index in the frequency stamp  
         'f_stamp': generator.f_stamp,  # the frequency stamp for each signal
         't_stamp': generator.t_stamp,  # time stamp for one signal
-        't_stamps': t_stamp            # time stamp for one experiment
-    }
+        't_stamps': t_stamp,           # time stamp for one experiment
+    } 
 
     if is_save is True:
         save_file(data, file_name)
@@ -74,14 +75,17 @@ def main(freq_range: tuple,
                             f_stamp=generator.f_stamp)
         vis.plot_signals()
 
+    vis.check_sum_constraint(u, True)
+
+
 if __name__ == '__main__':
-    main(freq_range = (0.0, 4.0),
+    main(freq_range = (0.0, 3),
          f = 100.0,
          N = 1000,
-         p = 5,
-         m = 3,
-         nr_inputs = 3,
-         mode = 'orthogonal',
-         file_name = 'test',
+         p = 10,
+         m = 10,
+         nr_inputs = 9,
+         mode = 'mapping',
+         file_name = '3Hz_mapping_5_5',
          is_visualization = True,
          is_save = True)
