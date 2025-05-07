@@ -32,9 +32,15 @@ class ExcitationSignal():
         self.amp = amp
         self.eps = eps
 
+        self.M = np.array([
+                             [np.cos(np.deg2rad(0)),     np.sin(np.deg2rad(0))],
+                             [np.cos(np.deg2rad(120)),   np.sin(np.deg2rad(120))],
+                             [np.cos(np.deg2rad(-120)),  np.sin(np.deg2rad(-120))]])
+
         self.initialization(self.freq_range, 
                             self.f, 
                             self.N)
+
         
     def initialization(self, freq_range: tuple,
                        f: float, 
@@ -59,7 +65,7 @@ class ExcitationSignal():
         self.t_stamp = self.get_time_stamp(f, N)
         self.f_stamp = self.get_freq_stamp(f, N)
         self.idx = self.get_freq_index(freq_range, self.f_stamp)
-    
+       
     @staticmethod
     def get_freq_index(freq_range: tuple,
                        f_stamp: np.ndarray) -> tuple:
@@ -159,7 +165,7 @@ class ExcitationSignal():
             idx: the start and end indices of the excited range. 
         
         Returns:
-            U (complex): The frequency signal.
+            U (complex): The frequency signal.    
             U_amp (array): The amplitude in the frequency domain.
             U_phase (array): The phase in the frequency domain.
         """
@@ -187,11 +193,10 @@ class ExcitationSignal():
         """
         return u/np.max(np.abs(u))
 
-    def get_signals(self, N: int, 
+    def get_signals_orthogonal(self, N: int, 
                     amp: int, 
                     nr_inputs: int,
-                    idx: tuple,
-                    mode: str) -> tuple[np.ndarray,
+                    idx: tuple) -> tuple[np.ndarray,
                                         np.ndarray,
                                         np.ndarray]:
         """For each input channel, generate one signal
@@ -214,24 +219,89 @@ class ExcitationSignal():
         U_amp = np.zeros((nr_inputs, N))
         U_phase = np.zeros((nr_inputs, N))
         u = np.zeros((nr_inputs, N))
+        u_original = np.zeros((6, N))
 
-        if mode == 'orthogonal':
+        for i in range(3):
+            # For each segment of the arm
             _U_amp, _U_phase = self.get_one_feasible_signal(N, amp, idx)
-            for i in range(nr_inputs):
-                phase_shift = 2 * np.pi * i / nr_inputs
-                U_amp[i, :] = _U_amp
-                U_phase[i, :] = _U_phase + phase_shift
-                U = self._get_complex_signal(U_amp[i, :], U_phase[i, :])
-                u[i, :] = self._get_normalization(self.get_time_signal(U))
-        
-        elif mode == 'random':
-            for i in range(nr_inputs):
-                U_amp[i, :], U_phase[i, :] = self.get_one_feasible_signal(N, amp, idx)
-                U = self._get_complex_signal(U_amp[i, :], U_phase[i, :])
-                u[i, :] = self._get_normalization(self.get_time_signal(U))
+            group_indices = [3 * i, 3 * i + 1, 3 * i + 2]
+            for j in range(3):
+                # For each string of one segment
+                phase_shift = 2 * np.pi * j / 3
+                U_amp[3*i + j, :] = _U_amp
+                U_phase[3*i + j, :] = _U_phase + phase_shift
+                U = self._get_complex_signal(U_amp[3*i + j, :], U_phase[3*i + j, :])
+                u[3*i + j, :] = self.get_time_signal(U)
 
-        return U_amp, U_phase, u
+            max_val = np.max(np.abs(u[group_indices, :]))
+            u[group_indices, :] /= max_val
+            
+        selected_indices = [0, 1, 3, 4, 6, 7]
+        u_original = u[selected_indices, :]
+
+        return U_amp, U_phase, u, u_original
     
+    def get_signals_mapping(self, N: int, 
+                    amp: int, 
+                    idx: tuple) -> tuple[np.ndarray,
+                                        np.ndarray,
+                                        np.ndarray,
+                                        np.ndarray]:
+        
+        #Initialization
+        U_amp = np.zeros((6, N))
+        U_phase = np.zeros((6, N))
+        u = np.zeros((9, N))
+        u_original = np.zeros((6, N))
+
+        # for i in range(3):
+        #     U_amp[2*i, :], U_phase[2*i, :] = self.get_one_feasible_signal(N, amp, idx)
+        #     Bx_f = self._get_complex_signal(U_amp[2*i, :], U_phase[2*i, :])
+        #     u_original[2*i, :] = self._get_normalization(self.get_time_signal(Bx_f))
+        #     U_amp[2*i+1, :], U_phase[2*i+1, :] = self.get_one_feasible_signal(N, amp, idx)
+        #     By_f = self._get_complex_signal(U_amp[2*i+1, :], U_phase[2*i+1, :])
+        #     u_original[2*i+1, :] = self._get_normalization(self.get_time_signal(By_f))
+        #     u[3*i:3*i+3, :] = self.M @ np.vstack([u_original[2*i, :], u_original[2*i+1, :]])
+        # return U_amp, U_phase, u, u_original
+        for i in range(3):
+            U_amp[2*i, :], U_phase[2*i, :] = self.get_one_feasible_signal(N, amp, idx)
+            Bx_f = self._get_complex_signal(U_amp[2*i, :], U_phase[2*i, :])
+            u_original[2*i, :] = self._get_normalization(self.get_time_signal(Bx_f)) * 1000
+            U_amp[2*i+1, :] = U_amp[2*i, :]
+            U_phase[2*i+1, :] = U_phase[2*i, :] + np.pi / 2
+            By_f = self._get_complex_signal(U_amp[2*i+1, :], U_phase[2*i+1, :])
+            u_original[2*i+1, :] = self._get_normalization(self.get_time_signal(By_f)) * 1000
+            u[3*i:3*i+3, :] = self.M @ np.vstack([u_original[2*i, :], u_original[2*i+1, :]])
+        return U_amp, U_phase, u, u_original
+    # def get_signals_mapping(self, N: int, 
+    #                 amp: int, 
+    #                 idx: tuple) -> tuple[np.ndarray,
+    #                                     np.ndarray,
+    #                                     np.ndarray,
+    #                                     np.ndarray]:
+    #     base_amp, base_phase = self.get_one_feasible_signal(N, amp, idx)
+
+    #     U_amp = np.zeros((6, N))
+    #     U_phase = np.zeros((6, N))
+    #     u_original = np.zeros((6, N))
+
+    #     for i in range(6):
+    #         phase_shift = 2 * np.pi * i / 6
+    #         U_amp[i, :] = base_amp
+    #         U_phase[i, :] = base_phase + phase_shift
+
+    #         U_complex = self._get_complex_signal(U_amp[i, :], U_phase[i, :])
+    #         # u_original[i, :] = self._get_normalization(self.get_time_signal(U_complex))
+    #         u_original[i, :] = self.get_time_signal(U_complex)
+        
+    #     u = np.zeros((9, N))
+    #     for i in range(3):
+    #         Bx = u_original[2*i, :]
+    #         By = u_original[2*i+1, :]
+    #         mapped = self.M @ np.vstack([Bx, By])
+    #         u[3*i:3*i+3, :] = mapped
+    #     return U_amp, U_phase, u, u_original
+
     def get_one_feasible_signal(self,
                                 N: int,
                                 amp: float,
@@ -253,7 +323,7 @@ class ExcitationSignal():
         while diff > self.eps:
             U, U_amp, U_phase = self.get_frequency_signal(N, amp, idx)
             u = self._get_normalization(self.get_time_signal(U))
-            diff = np.abs(u[0] - u[1])
+            diff = np.abs(u[0] - u[-1])
         return U_amp, U_phase
 
     def get_multi_signals(self, m: int, 
@@ -278,21 +348,35 @@ class ExcitationSignal():
             U_Phase (nr_inputs x m x N): The random phase in the frequency domain of differnt signals.
             u (nr_inputs x m x N): The different signals in the time domain.
             us (nr_inputs x m*N*p): The m different signals repeated p times.
+            u_original(6 x m xp): The original siginal that is truly used in system identification.
         """
-        U_amp = np.zeros((nr_inputs, m, self.N))
-        U_phase = np.zeros((nr_inputs, m, self.N))
+
         u = np.zeros((nr_inputs, m, self.N))
         us = np.zeros((nr_inputs, m*p*self.N))
-
-        for i in tqdm(range(m)):
-            U_amp[:, i, :], U_phase[:, i, :], u[:, i, :] = self.get_signals(self.N, 
+        u_original = np.zeros((6, m, self.N))
+        if mode == 'orthogonal':
+            U_amp = np.zeros((nr_inputs, m, self.N))
+            U_phase = np.zeros((nr_inputs, m, self.N))
+            for i in tqdm(range(m)):
+                U_amp[:, i, :], U_phase[:, i, :], u[:, i, :], u_original[:, i, :] = self.get_signals_orthogonal(self.N, 
                                                                             self.amp, 
                                                                             nr_inputs,
-                                                                            self.idx,
-                                                                            mode)
-        
+                                                                            self.idx)
+        if mode == 'mapping':
+            U_amp = np.zeros((6, m, self.N))
+            U_phase = np.zeros((6, m, self.N))
+            for i in tqdm(range(m)):
+                U_amp[:, i, :], U_phase[:, i, :], u[:, i, :], u_original[:, i, :] = self.get_signals_mapping(self.N, 
+                                                                            self.amp, 
+                                                                            self.idx)
         us = self.get_repeat_signals(u, p)
-        return U_amp, U_phase, u, us
+        u_sysid = self.get_repeat_signals(u_original, p)
+        for i in range(6):
+            for j in range(i + 1, 6):
+                dot = np.dot(u_sysid[i, :], u_sysid[j, :])
+                print(f"dot(u[{i}], u[{j}]) = {dot:.2f}")
+
+        return U_amp, U_phase, u, us, u_sysid
     
     @staticmethod
     def get_repeat_signals(u: np.ndarray,
